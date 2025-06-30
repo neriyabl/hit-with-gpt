@@ -28,3 +28,8 @@
 git clone https://github.com/your-org/hit.git
 cd hit
 cargo build --release
+```
+
+The project defines a simple object model in `src/lib.rs` consisting of `Blob`,
+`Tree` and `Commit`. Each object implements the `Hashable` trait which produces
+a SHA-256 digest of its serialized contents using `serde` and `sha2`.
