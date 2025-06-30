@@ -1,35 +1,56 @@
 # hit
 
-> A next-generation, AI-powered version control system – designed to replace Git.
+A next-generation, AI-powered automatic version control system for real-time collaboration.
 
----
+## Overview
 
-## 🧠 What is `hit`?
+`hit` is not a Git clone. It removes the need for manual `add` or `commit` commands. A local watcher continuously tracks file changes, while an AI backend decides what and when to version and share with others.
 
-`hit` is an experimental version control system, written in Rust, that reimagines the way teams collaborate on code. Unlike Git, which relies heavily on manual commits and merges, `hit` introduces intelligent automation powered by AI to streamline your workflow.
+## Features
 
-## ✨ Key Features (WIP)
+- ✅ Object model (`Blob`, `Tree`, `Commit`)
+- ✅ File-based object storage
+- ✅ `hit init` – initialize a repository
+- ✅ `hit watch` – local real-time file change monitoring
 
-- 🔁 **Parallel Development** – Multiple contributors can work simultaneously without constant merge conflicts.
-- 🤖 **AI-Aware Commits** – Changes are saved automatically when the system identifies that code is "ready".
-- 🧩 **Conflict Minimization** – Uses AI to minimize human intervention in merges.
-- 📡 **Real-time Syncing** – Near-instant syncing of changes across clients.
-- 🔐 **Secure by Design** – Built-in cryptographic integrity and version traceability.
-- 📁 **Centralized or Distributed** – Supports flexible architectures for your organization.
-- 🌐 **WebTransport-ready** – Designed to support modern transport layers from day one.
+## Architecture
 
-## 🚧 Project Status
+- Local watcher detects file changes and stores them as immutable objects (`Blob`, `Tree`, `Commit`).
+- A central server receives change notifications and decides when to propagate them.
+- Future plans: IDE integration, semantic diffing, and conflict-free merges.
 
-`hit` is under early-stage development. Major features are being actively designed and discussed. Expect rapid changes and breaking APIs.
+## Roadmap
 
-## 🛠 Build Instructions
+- [x] Object model
+- [x] Object storage
+- [x] Repository initialization
+- [x] Basic file watcher
+- [ ] Server communication
+- [ ] AI commit decision engine
+- [ ] Real-time collaboration protocol
+- [ ] Version tree viewer (CLI or UI)
+
+## Getting Started
+
+Install via `cargo install` or build from source:
 
 ```bash
-git clone https://github.com/your-org/hit.git
-cd hit
+cargo install hit
+# or
 cargo build --release
 ```
 
-The project defines a simple object model in `src/lib.rs` consisting of `Blob`,
-`Tree` and `Commit`. Each object implements the `Hashable` trait which produces
-a SHA-256 digest of its serialized contents using `serde` and `sha2`.
+Initialize a repository and start watching:
+
+```bash
+hit init
+hit watch
+```
+
+## Vision
+
+Eventually `hit` will support multi-developer collaboration without the overhead of merges, commits, or branches. AI will infer developer intent and handle versioning autonomously.
+
+## Contributing
+
+`hit` is pre-alpha. Contributions are welcome, but expect rapid changes.
