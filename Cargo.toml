@@ -7,3 +7,8 @@ edition = "2024"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 bincode = "1"
+clap = { version = "4.0", features = ["derive"] }
+
+[[bin]]
+name = "hit"
+path = "src/main.rs"
