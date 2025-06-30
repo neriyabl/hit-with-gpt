@@ -11,6 +11,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Init,
+    Watch,
 }
 
 fn main() {
@@ -19,6 +20,11 @@ fn main() {
         Commands::Init => {
             if let Err(e) = hit_with_gpt::repo::init() {
                 eprintln!("Error initializing repository: {}", e);
+            }
+        }
+        Commands::Watch => {
+            if let Err(e) = hit_with_gpt::watcher::watch_and_store_changes() {
+                eprintln!("Watcher error: {}", e);
             }
         }
     }

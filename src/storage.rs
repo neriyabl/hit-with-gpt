@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::object::{Object, Hashable};
 
-const OBJECT_DIR: &str = ".hit/objects";
+/// Directory where objects are stored.
+pub const OBJECT_DIR: &str = ".hit/objects";
 
 pub fn write_object(obj: &Object) -> std::io::Result<String> {
     fs::create_dir_all(OBJECT_DIR)?;
