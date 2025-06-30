@@ -1,78 +1,26 @@
-use serde::{Serialize, Deserialize};
-use sha2::{Digest, Sha256};
+pub mod object;
+pub mod storage;
 
-/// Trait for objects that can produce a stable hash identifier.
-pub trait Hashable {
-    fn hash(&self) -> String;
-}
+use std::{fs::{self, File}, io::{self, Write}, path::Path};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Blob {
-    pub content: Vec<u8>,
-}
-
-impl Hashable for Blob {
-    fn hash(&self) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(&bincode::serialize(self).expect("failed to serialize blob"));
-        format!("{:x}", hasher.finalize())
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum TreeEntry {
-    Blob { name: String, blob: Blob },
-    Tree { name: String, tree: Tree },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Tree {
-    pub entries: Vec<TreeEntry>,
-}
-
-impl Hashable for Tree {
-    fn hash(&self) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(&bincode::serialize(self).expect("failed to serialize tree"));
-        format!("{:x}", hasher.finalize())
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Commit {
-    pub tree: Tree,
-    pub message: String,
-}
-
-impl Hashable for Commit {
-    fn hash(&self) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(&bincode::serialize(self).expect("failed to serialize commit"));
-        format!("{:x}", hasher.finalize())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blob_hash_is_deterministic() {
-        let blob = Blob { content: b"hello".to_vec() };
-        assert_eq!(blob.hash(), blob.hash());
+/// Initialize a new hit repository in the given directory.
+///
+/// Creates the `.hit` directory with the required substructure.
+pub fn init_repo<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    let hit_dir = path.as_ref().join(".hit");
+    if hit_dir.exists() {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "repository already initialized"));
     }
 
-    #[test]
-    fn tree_and_commit_hash() {
-        let blob = Blob { content: b"hello".to_vec() };
-        let tree = Tree {
-            entries: vec![TreeEntry::Blob { name: "file.txt".into(), blob }],
-        };
-        let commit = Commit {
-            tree: tree.clone(),
-            message: "init".into(),
-        };
-        assert!(!tree.hash().is_empty());
-        assert!(!commit.hash().is_empty());
-    }
+    fs::create_dir_all(hit_dir.join("objects"))?;
+    fs::create_dir_all(hit_dir.join("refs/heads"))?;
+
+    File::create(hit_dir.join("config"))?;
+
+    let mut head = File::create(hit_dir.join("HEAD"))?;
+    head.write_all(b"refs/heads/main")?;
+
+    File::create(hit_dir.join("refs/heads/main"))?;
+
+    Ok(())
 }
