@@ -1,8 +1,12 @@
 use std::path::Path;
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{env, error::Error};
 
-use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher, Event};
+use reqwest::blocking::Client;
+use serde_json::json;
+
+use notify::{Event, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher};
 
 use crate::object::{Blob, Object, Hashable};
 use crate::storage::{write_object, OBJECT_DIR};
@@ -10,7 +14,31 @@ use crate::storage::{write_object, OBJECT_DIR};
 /// File suffixes that should be ignored by the watcher.
 pub const IGNORED_SUFFIXES: &[&str] = &["~", ".swp", ".tmp"];
 
-pub fn watch_and_store_changes() -> Result<()> {
+/// Send a newly detected change to the configured server.
+pub fn send_change_to_server(hash: &str, path: &Path) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let base = env::var("HIT_SERVER_URL").unwrap_or_else(|_| "http://localhost:8888".into());
+    let url = format!("{}/changes", base.trim_end_matches('/'));
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let body = json!({
+        "hash": hash,
+        "path": path.to_string_lossy(),
+        "timestamp": timestamp,
+    });
+    let resp = client.post(&url).json(&body).send()?;
+    if !resp.status().is_success() {
+        return Err(format!("server responded with status {}", resp.status()).into());
+    }
+    println!(
+        "Sent change {} for {} to server (status {})",
+        hash,
+        path.display(),
+        resp.status()
+    );
+    Ok(())
+}
+
+pub fn watch_and_store_changes() -> NotifyResult<()> {
     let (tx, rx) = channel();
 
     let mut watcher = RecommendedWatcher::new(
@@ -58,6 +86,9 @@ pub fn handle_event(event: Event) -> std::io::Result<()> {
             } else {
                 write_object(&obj)?;
                 println!("Detected change: {} \u{2192} stored as {}", path.display(), hash);
+                if let Err(e) = send_change_to_server(&hash, &path) {
+                    eprintln!("failed to send change to server: {}", e);
+                }
             }
         }
     }
