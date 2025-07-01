@@ -35,12 +35,14 @@ mod tests {
     use super::*;
     use crate::object::{Blob, Tree, TreeEntry, Commit};
     use std::fs;
+    use serial_test::serial;
 
     fn clean() {
         let _ = fs::remove_dir_all(".hit");
     }
 
     #[test]
+    #[serial]
     fn blob_roundtrip() {
         clean();
         let blob = Blob { content: b"hello".to_vec() };
@@ -53,6 +55,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn tree_roundtrip() {
         clean();
         let blob = Blob { content: b"hello".to_vec() };
@@ -66,6 +69,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn commit_roundtrip() {
         clean();
         let blob = Blob { content: b"hello".to_vec() };

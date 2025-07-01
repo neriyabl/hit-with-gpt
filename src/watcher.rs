@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher, Event};
 
-use crate::object::{Blob, Object};
+use crate::object::{Blob, Object, Hashable};
 use crate::storage::{write_object, OBJECT_DIR};
 
 /// File suffixes that should be ignored by the watcher.
@@ -52,12 +52,12 @@ pub fn handle_event(event: Event) -> std::io::Result<()> {
             let object_path = Path::new(OBJECT_DIR).join(&hash);
             if object_path.exists() {
                 println!(
-                    "Detected change: {} \u2192 stored as {} (unchanged, already stored)",
+                    "Detected change: {} \u{2192} stored as {} (unchanged, already stored)",
                     path.display(), hash
                 );
             } else {
                 write_object(&obj)?;
-                println!("Detected change: {} \u2192 stored as {}", path.display(), hash);
+                println!("Detected change: {} \u{2192} stored as {}", path.display(), hash);
             }
         }
     }
