@@ -3,3 +3,4 @@ pub mod storage;
 pub mod repo;
 pub mod watcher;
 pub mod server;
+pub mod streaming;

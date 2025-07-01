@@ -73,3 +73,8 @@ This project uses the following crates:
 * `hit status` – show working directory status
 * `hit log` – show commit history
 * `hit push` / `hit pull` – synchronize with central server (future)
+
+## 🌐 Server API
+
+* `POST /changes` – submit a change event
+* `GET /stream` – subscribe to real-time changes via Server-Sent Events
