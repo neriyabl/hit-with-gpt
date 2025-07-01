@@ -12,9 +12,11 @@ struct Cli {
 enum Commands {
     Init,
     Watch,
+    Serve,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Init => {
@@ -26,6 +28,9 @@ fn main() {
             if let Err(e) = hit_with_gpt::watcher::watch_and_store_changes() {
                 eprintln!("Watcher error: {}", e);
             }
+        }
+        Commands::Serve => {
+            hit_with_gpt::server::start_server().await;
         }
     }
 }
