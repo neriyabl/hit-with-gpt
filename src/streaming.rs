@@ -48,7 +48,7 @@ pub async fn sse_handler(
 
 pub fn router(broadcaster: Broadcaster) -> Router {
     Router::new()
-        .route("/stream", get(sse_handler))
+        .route("/events", get(sse_handler))
         .with_state(broadcaster)
 }
 
