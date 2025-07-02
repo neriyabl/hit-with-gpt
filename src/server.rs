@@ -180,7 +180,7 @@ mod tests {
         let app = app(state);
 
         let req = Request::builder()
-            .uri("/stream")
+            .uri("/events")
             .body(Body::empty())
             .unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();

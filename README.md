@@ -24,6 +24,7 @@ The long-term vision includes an AI-powered server that decides which changes ar
 * ✅ Core object model with SHA-256 hashing and binary serialization
 * ✅ File-based object storage
 * ✅ Tests for all object and storage functionality
+* ✅ Basic real-time streaming via SSE on `/events`
 
 ## 🧱 Architecture
 
