@@ -21,6 +21,7 @@ The long-term vision includes an AI-powered server that decides which changes ar
 
 * ✅ `hit init` – Initializes a repository with `.hit/` directory
 * ✅ `hit watch` – Watches for local file changes and stores them as `Blob`s
+* ✅ `hit sync` – Listens for server-pushed changes using SSE
 * ✅ Core object model with SHA-256 hashing and binary serialization
 * ✅ File-based object storage
 * ✅ Tests for all object and storage functionality
@@ -47,6 +48,7 @@ Server logic and AI-based syncing are still in design.
 cargo build --release
 ./target/release/hit init
 ./target/release/hit watch
+./target/release/hit sync
 ```
 
 ## 📂 Code Structure
@@ -55,6 +57,7 @@ cargo build --release
 * `src/storage.rs` – Object read/write logic
 * `src/repo.rs` – Repository setup (`hit init`)
 * `src/watcher.rs` – Filesystem watcher (`hit watch`)
+* `src/sync.rs` – SSE client (`hit sync`)
 * `main.rs` – CLI commands (`clap`)
 
 ## 🛣 Roadmap

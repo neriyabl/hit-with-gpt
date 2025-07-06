@@ -4,3 +4,4 @@ pub mod repo;
 pub mod watcher;
 pub mod server;
 pub mod streaming;
+pub mod sync;

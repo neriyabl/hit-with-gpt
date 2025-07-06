@@ -13,6 +13,7 @@ enum Commands {
     Init,
     Watch,
     Serve,
+    Sync,
 }
 
 #[tokio::main]
@@ -31,6 +32,9 @@ async fn main() {
         }
         Commands::Serve => {
             hit_with_gpt::server::start_server().await;
+        }
+        Commands::Sync => {
+            hit_with_gpt::sync::sync_from_server().await;
         }
     }
 }
