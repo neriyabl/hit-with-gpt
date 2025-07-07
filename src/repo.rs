@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
+use tracing::info;
 
 /// Initialize a new hit repository in the current directory.
 ///
@@ -11,9 +12,9 @@ pub fn init() -> std::io::Result<PathBuf> {
     let hit_dir = cwd.join(".hit");
 
     if hit_dir.exists() {
-        println!("Reinitialized existing hit repository in {}", hit_dir.display());
+        info!(path = %hit_dir.display(), "Reinitialized existing hit repository");
     } else {
-        println!("Initialized empty hit repository in {}", hit_dir.display());
+        info!(path = %hit_dir.display(), "Initialized empty hit repository");
     }
 
     fs::create_dir_all(hit_dir.join("objects"))?;
