@@ -6,6 +6,8 @@ use reqwest_eventsource::{Event, EventSource};
 use futures_util::StreamExt;
 use tokio::time::sleep;
 
+use tracing::{info, warn};
+
 use crate::server::Change;
 
 /// Connect to the server and listen for change events via SSE.
@@ -23,7 +25,7 @@ pub async fn sync_from_server() {
     let mut backoff = 1u64;
 
     loop {
-        eprintln!("Connecting to {}", url);
+        info!(url = %url, "connecting");
         let request = client.get(&url);
         match EventSource::new(request) {
             Ok(mut source) => {
@@ -37,33 +39,35 @@ pub async fn sync_from_server() {
                         message = source.next() => match message {
                             Some(Ok(Event::Open)) => {
                                 backoff = 1;
-                                eprintln!("Connected");
+                                info!("connected");
                             }
                             Some(Ok(Event::Message(msg))) => {
                                 match serde_json::from_str::<Change>(&msg.data) {
                                     Ok(change) => {
-                                        println!("Received change: {} {}", change.hash, change.path);
+                                        info!(hash = %change.hash, path = %change.path, "Would apply change");
                                     }
-                                    Err(e) => eprintln!("failed to parse event: {}", e),
+                                    Err(e) => warn!(%e, "failed to parse event"),
                                 }
                             }
                             Some(Err(e)) => {
-                                eprintln!("stream error: {}", e);
+                                warn!(%e, "stream error");
                                 break;
                             }
                             None => {
-                                eprintln!("server closed connection");
+                                warn!("server closed connection");
                                 break;
                             }
                         }
                     }
                 }
             }
-            Err(e) => eprintln!("failed to connect: {}", e),
+            Err(e) => {
+                warn!(%e, "failed to connect");
+            }
         }
 
         let delay = backoff.min(30);
-        eprintln!("reconnecting in {}s", delay);
+        info!(delay, "reconnecting");
         sleep(Duration::from_secs(delay)).await;
         backoff = (backoff * 2).min(30);
     }

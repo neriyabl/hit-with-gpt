@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, error::Error};
+use tracing::{error, info, warn};
 
 use reqwest::blocking::Client;
 use serde_json::json;
@@ -29,12 +30,7 @@ pub fn send_change_to_server(hash: &str, path: &Path) -> Result<(), Box<dyn Erro
     if !resp.status().is_success() {
         return Err(format!("server responded with status {}", resp.status()).into());
     }
-    println!(
-        "Sent change {} for {} to server (status {})",
-        hash,
-        path.display(),
-        resp.status()
-    );
+    info!(hash, path = %path.display(), status = %resp.status(), "Sent change to server");
     Ok(())
 }
 
@@ -54,10 +50,10 @@ pub fn watch_and_store_changes() -> NotifyResult<()> {
         match res {
             Ok(event) => {
                 if let Err(e) = handle_event(event) {
-                    eprintln!("error handling event: {}", e);
+                    error!(%e, "error handling event");
                 }
             }
-            Err(e) => eprintln!("watch error: {:?}", e),
+            Err(e) => error!(?e, "watch error"),
         }
     }
     Ok(())
@@ -79,15 +75,12 @@ pub fn handle_event(event: Event) -> std::io::Result<()> {
             let hash = obj.hash();
             let object_path = Path::new(OBJECT_DIR).join(&hash);
             if object_path.exists() {
-                println!(
-                    "Detected change: {} \u{2192} stored as {} (unchanged, already stored)",
-                    path.display(), hash
-                );
+                info!(path = %path.display(), hash, "Detected change (already stored)");
             } else {
                 write_object(&obj)?;
-                println!("Detected change: {} \u{2192} stored as {}", path.display(), hash);
+                info!(path = %path.display(), hash, "Detected change stored");
                 if let Err(e) = send_change_to_server(&hash, &path) {
-                    eprintln!("failed to send change to server: {}", e);
+                    warn!(%e, "failed to send change to server");
                 }
             }
         }

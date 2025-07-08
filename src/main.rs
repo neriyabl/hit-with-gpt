@@ -18,16 +18,22 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_target(true)
+        .pretty()
+        .init();
+
     let cli = Cli::parse();
     match cli.command {
         Commands::Init => {
             if let Err(e) = hit_with_gpt::repo::init() {
-                eprintln!("Error initializing repository: {}", e);
+                tracing::error!(%e, "Error initializing repository");
             }
         }
         Commands::Watch => {
             if let Err(e) = hit_with_gpt::watcher::watch_and_store_changes() {
-                eprintln!("Watcher error: {}", e);
+                tracing::error!(%e, "Watcher error");
             }
         }
         Commands::Serve => {

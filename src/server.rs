@@ -61,7 +61,6 @@ fn app(state: AppState) -> Router {
 }
 
 pub async fn start_server() {
-    tracing_subscriber::fmt::init();
     let store = ChangeStore::default();
     let (tx, _) = broadcast::channel(100);
     let state = AppState { store, broadcaster: tx };
