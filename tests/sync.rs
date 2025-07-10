@@ -9,6 +9,11 @@ use futures_util::StreamExt;
 
 use hit_with_gpt::server::Change;
 use hit_with_gpt::streaming::{self, Broadcaster};
+use hit_with_gpt::sync::apply_change;
+use hit_with_gpt::object::{Blob, Object, Hashable};
+use hit_with_gpt::storage::{read_object, OBJECT_DIR};
+use httpmock::{Method::GET, MockServer};
+use serial_test::serial;
 
 #[tokio::test]
 async fn parses_sse_event() {
@@ -38,4 +43,43 @@ async fn parses_sse_event() {
     } else {
         panic!("expected message event");
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn applies_change_from_server() {
+    use std::fs;
+
+    let server = MockServer::start();
+    fs::remove_dir_all(".hit").ok();
+    let path = "synced.txt";
+    let blob = Blob { content: b"hello".to_vec() };
+    let obj = Object::Blob(blob.clone());
+    let bytes = bincode::serialize(&obj).unwrap();
+    let hash = obj.hash();
+
+    let mock = server.mock(|when, then| {
+        when.method(GET).path(format!("/objects/{hash}"));
+        then.status(200).body(bytes.clone());
+    });
+
+    let client = reqwest::Client::new();
+    let change = Change { hash: hash.clone(), path: path.into(), timestamp: 1 };
+    apply_change(&client, &server.url(""), &change).await.unwrap();
+
+    mock.assert();
+    assert!(fs::metadata(format!("{}/{}", OBJECT_DIR, hash)).unwrap().is_file());
+    let obj2 = read_object(&hash).unwrap();
+    assert_eq!(obj2, obj);
+    let content = fs::read(path).unwrap();
+    assert_eq!(content, blob.content);
+}
+
+#[tokio::test]
+#[serial]
+async fn error_when_object_unreachable() {
+    let client = reqwest::Client::new();
+    let change = Change { hash: "abcd".into(), path: "nope".into(), timestamp: 0 };
+    let err = apply_change(&client, "http://127.0.0.1:59999", &change).await;
+    assert!(err.is_err());
 }
