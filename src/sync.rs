@@ -1,12 +1,72 @@
 use std::env;
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
-use futures_util::StreamExt;
 use tokio::time::sleep;
 
-use tracing::{info, warn};
+use tracing::{error, info, warn};
+
+use crate::object::Object;
+use crate::storage::write_object;
+
+use std::path::{Component, Path, PathBuf};
+
+fn resolve_repo_path(rel: &str) -> std::io::Result<PathBuf> {
+    let p = Path::new(rel);
+    if p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "path outside repository",
+        ));
+    }
+    let root = std::env::current_dir()?;
+    Ok(root.join(p))
+}
+
+/// Fetch the object for the given change from the server and apply it locally.
+/// The object is written to storage and the file content is applied to the
+/// path specified in the [`Change`].
+pub async fn apply_change(
+    client: &Client,
+    base: &str,
+    change: &Change,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let target_path = resolve_repo_path(&change.path)?;
+
+    let url = format!("{}/objects/{}", base.trim_end_matches('/'), change.hash);
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        return Err(format!("server responded with status {}", resp.status()).into());
+    }
+    let bytes = resp.bytes().await?;
+    let obj: Object = bincode::deserialize(&bytes)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    write_object(&obj)?;
+
+    let blob = match obj {
+        Object::Blob(b) => b,
+        other => {
+            error!(?other, "received non-blob object");
+            return Err("non-blob object".into());
+        }
+    };
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    if target_path.exists() {
+        warn!(path = %target_path.display(), "overwriting existing file");
+        let backup = target_path.with_extension("bak");
+        let _ = std::fs::copy(&target_path, &backup);
+    }
+
+    std::fs::write(&target_path, &blob.content)?;
+    info!(hash = %change.hash, path = %target_path.display(), "applied change");
+    Ok(())
+}
 
 use crate::server::Change;
 
@@ -44,7 +104,9 @@ pub async fn sync_from_server() {
                             Some(Ok(Event::Message(msg))) => {
                                 match serde_json::from_str::<Change>(&msg.data) {
                                     Ok(change) => {
-                                        info!(hash = %change.hash, path = %change.path, "Would apply change");
+                                        if let Err(e) = apply_change(&client, &base, &change).await {
+                                            error!(%e, "failed to apply change");
+                                        }
                                     }
                                     Err(e) => warn!(%e, "failed to parse event"),
                                 }
