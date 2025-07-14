@@ -26,9 +26,7 @@ fn resolve_repo_path(rel: &str) -> std::io::Result<PathBuf> {
 }
 
 /// Fetch the object for the given change from the server and apply it locally.
-///
-let obj: Object = bincode::deserialize(&bytes)
-    .map_err(|e| format!("failed to deserialize object: {}", e))?;
+/// The object is written to storage and the file content is applied to the
 /// path specified in the [`Change`].
 pub async fn apply_change(
     client: &Client,
