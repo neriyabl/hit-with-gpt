@@ -1,15 +1,29 @@
 use std::env;
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
-use futures_util::StreamExt;
 use tokio::time::sleep;
 
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use crate::object::Object;
 use crate::storage::write_object;
+
+use std::path::{Component, Path, PathBuf};
+
+fn resolve_repo_path(rel: &str) -> std::io::Result<PathBuf> {
+    let p = Path::new(rel);
+    if p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "path outside repository",
+        ));
+    }
+    let root = std::env::current_dir()?;
+    Ok(root.join(p))
+}
 
 /// Fetch the object for the given change from the server and apply it locally.
 ///
@@ -21,6 +35,8 @@ pub async fn apply_change(
     base: &str,
     change: &Change,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let target_path = resolve_repo_path(&change.path)?;
+
     let url = format!("{}/objects/{}", base.trim_end_matches('/'), change.hash);
     let resp = client.get(&url).send().await?;
     if !resp.status().is_success() {
@@ -31,12 +47,26 @@ pub async fn apply_change(
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     write_object(&obj)?;
 
-    if let Object::Blob(blob) = obj {
-        std::fs::write(&change.path, &blob.content)?;
-    } else {
-        warn!("received non-blob object");
+    let blob = match obj {
+        Object::Blob(b) => b,
+        other => {
+            error!(?other, "received non-blob object");
+            return Err("non-blob object".into());
+        }
+    };
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
-    info!(hash = %change.hash, path = %change.path, "applied change");
+
+    if target_path.exists() {
+        warn!(path = %target_path.display(), "overwriting existing file");
+        let backup = target_path.with_extension("bak");
+        let _ = std::fs::copy(&target_path, &backup);
+    }
+
+    std::fs::write(&target_path, &blob.content)?;
+    info!(hash = %change.hash, path = %target_path.display(), "applied change");
     Ok(())
 }
 
