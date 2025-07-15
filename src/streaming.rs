@@ -1,23 +1,23 @@
-use axum::{extract::State, routing::get, Router};
 use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::{Router, extract::State, routing::get};
 use std::convert::Infallible;
 use std::time::Duration;
 use tokio::sync::broadcast::{Receiver, Sender};
-use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
-use crate::server::Change;
+use crate::server::ChangeEvent;
 
 #[derive(Clone)]
 pub struct Broadcaster {
-    tx: Sender<Change>,
+    tx: Sender<ChangeEvent>,
 }
 
 impl Broadcaster {
-    pub fn new(tx: Sender<Change>) -> Self {
+    pub fn new(tx: Sender<ChangeEvent>) -> Self {
         Self { tx }
     }
 
-    pub fn subscribe(&self) -> Receiver<Change> {
+    pub fn subscribe(&self) -> Receiver<ChangeEvent> {
         self.tx.subscribe()
     }
 }
@@ -51,4 +51,3 @@ pub fn router(broadcaster: Broadcaster) -> Router {
         .route("/events", get(sse_handler))
         .with_state(broadcaster)
 }
-

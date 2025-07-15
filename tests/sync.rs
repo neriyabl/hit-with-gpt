@@ -8,7 +8,7 @@ use tokio::sync::broadcast;
 use tokio::time::sleep;
 
 use hit_with_gpt::object::{Blob, Hashable, Object};
-use hit_with_gpt::server::Change;
+use hit_with_gpt::server::{Change, ChangeEvent};
 use hit_with_gpt::storage::{OBJECT_DIR, read_object};
 use hit_with_gpt::streaming::{self, Broadcaster};
 use hit_with_gpt::sync::apply_change;
@@ -28,10 +28,13 @@ async fn parses_sse_event() {
     // send a change after clients can connect
     tokio::spawn(async move {
         sleep(Duration::from_millis(100)).await;
-        tx.send(Change {
-            hash: "abcd".into(),
-            path: "foo.txt".into(),
-            timestamp: 1,
+        tx.send(ChangeEvent {
+            change: Change {
+                hash: "abcd".into(),
+                path: "foo.txt".into(),
+                timestamp: 1,
+            },
+            commit_id: 1,
         })
         .unwrap();
     });
@@ -42,9 +45,10 @@ async fn parses_sse_event() {
     // first event should be Open
     matches!(es.next().await.unwrap().unwrap(), Event::Open);
     if let Event::Message(msg) = es.next().await.unwrap().unwrap() {
-        let change: Change = serde_json::from_str(&msg.data).unwrap();
-        assert_eq!(change.hash, "abcd");
-        assert_eq!(change.path, "foo.txt");
+        let ev: ChangeEvent = serde_json::from_str(&msg.data).unwrap();
+        assert_eq!(ev.change.hash, "abcd");
+        assert_eq!(ev.change.path, "foo.txt");
+        assert_eq!(ev.commit_id, 1);
     } else {
         panic!("expected message event");
     }
