@@ -69,6 +69,7 @@ pub async fn apply_change(
 }
 
 use crate::server::{Change, ChangeEvent};
+use std::collections::HashSet;
 
 /// Connect to the server and listen for change events via SSE.
 ///
@@ -83,6 +84,7 @@ pub async fn sync_from_server() {
 
     let client = Client::new();
     let mut backoff = 1u64;
+    let mut processed = HashSet::new();
     let mut last_commit = 0u64;
 
     loop {
@@ -105,6 +107,10 @@ pub async fn sync_from_server() {
                             Some(Ok(Event::Message(msg))) => {
                                 match serde_json::from_str::<ChangeEvent>(&msg.data) {
                                     Ok(event) => {
+                                        if !processed.insert(event.commit_id) {
+                                            warn!(id = event.commit_id, "duplicate commit");
+                                            continue;
+                                        }
                                         if event.commit_id > last_commit {
                                             info!(from = last_commit, to = event.commit_id, "moving to commit");
                                             last_commit = event.commit_id;

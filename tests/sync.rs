@@ -3,6 +3,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use reqwest_eventsource::{Event, EventSource};
 use serde_json;
+use std::collections::HashSet;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
@@ -203,4 +204,40 @@ async fn backs_up_existing_file() {
 
     assert_eq!(fs::read("backup.txt").unwrap(), blob.content);
     assert_eq!(fs::read("backup.bak").unwrap(), b"old");
+}
+
+#[tokio::test]
+async fn skips_duplicate_commit_ids() {
+    let mut processed = HashSet::new();
+    let mut last_commit = 0u64;
+    let events = vec![
+        ChangeEvent {
+            change: Change {
+                hash: "h1".into(),
+                path: "p".into(),
+                timestamp: 1,
+            },
+            commit_id: 1,
+        },
+        ChangeEvent {
+            change: Change {
+                hash: "h1".into(),
+                path: "p".into(),
+                timestamp: 1,
+            },
+            commit_id: 1,
+        },
+    ];
+    let mut applied = 0u32;
+    for ev in events {
+        if !processed.insert(ev.commit_id) {
+            continue;
+        }
+        if ev.commit_id > last_commit {
+            last_commit = ev.commit_id;
+        }
+        applied += 1;
+    }
+    assert_eq!(applied, 1);
+    assert_eq!(last_commit, 1);
 }

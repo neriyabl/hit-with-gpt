@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,27 +23,57 @@ impl CommitStore {
         Self::default()
     }
 
-    pub fn add_commit(&self, change: Change) -> Commit {
-        let mut commits = self.commits.lock().unwrap();
+    pub fn add_commit(&self, change: Change) -> Result<Commit, Box<dyn Error>> {
+        let mut commits = self.commits.lock().map_err(|_| "Lock poisoned")?;
         let id = commits.last().map(|c| c.id + 1).unwrap_or(1);
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let commit = Commit {
             id,
             changes: vec![change],
             timestamp,
         };
         commits.push(commit.clone());
-        commit
+        Ok(commit)
     }
 
-    pub fn all(&self) -> Vec<Commit> {
-        self.commits.lock().unwrap().clone()
+    pub fn all(&self) -> Result<Vec<Commit>, Box<dyn Error>> {
+        Ok(self.commits.lock().map_err(|_| "Lock poisoned")?.clone())
     }
 
-    pub fn latest(&self) -> Option<Commit> {
-        self.commits.lock().unwrap().last().cloned()
+    pub fn latest(&self) -> Result<Option<Commit>, Box<dyn Error>> {
+        Ok(self
+            .commits
+            .lock()
+            .map_err(|_| "Lock poisoned")?
+            .last()
+            .cloned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::Change;
+
+    #[test]
+    fn error_on_poisoned_lock() {
+        let store = CommitStore::default();
+        // Poison the mutex
+        {
+            let store2 = store.clone();
+            std::thread::spawn(move || {
+                let _guard = store2.commits.lock().unwrap();
+                panic!("boom");
+            })
+            .join()
+            .ok();
+        }
+        let change = Change {
+            hash: "h".into(),
+            path: "p".into(),
+            timestamp: 0,
+        };
+        let res = store.add_commit(change);
+        assert!(res.is_err());
     }
 }

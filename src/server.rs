@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -20,14 +19,8 @@ pub struct Change {
     pub timestamp: u64,
 }
 
-#[derive(Clone, Default)]
-pub struct ChangeStore {
-    pub changes: Arc<Mutex<Vec<Change>>>,
-}
-
 #[derive(Clone)]
 pub struct AppState {
-    pub store: ChangeStore,
     pub commits: CommitStore,
     pub broadcaster: broadcast::Sender<ChangeEvent>,
 }
@@ -51,10 +44,13 @@ async fn change_handler(
         }
     };
     tracing::info!("change received: {:?}", change);
-    if let Ok(mut vec) = state.store.changes.lock() {
-        vec.push(change.clone());
-    }
-    let commit = state.commits.add_commit(change.clone());
+    let commit = match state.commits.add_commit(change.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("failed to create commit: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
     tracing::info!(id = commit.id, "commit created");
     if let Err(e) = state.broadcaster.send(ChangeEvent {
         change: change.clone(),
@@ -65,15 +61,24 @@ async fn change_handler(
     Ok(Json(json!({"accepted": true})))
 }
 
-async fn commits_handler(State(state): State<AppState>) -> Json<Vec<Commit>> {
-    Json(state.commits.all())
+async fn commits_handler(State(state): State<AppState>) -> Result<Json<Vec<Commit>>, StatusCode> {
+    match state.commits.all() {
+        Ok(list) => Ok(Json(list)),
+        Err(e) => {
+            tracing::error!("failed to fetch commits: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 async fn latest_commit_handler(State(state): State<AppState>) -> impl IntoResponse {
-    if let Some(c) = state.commits.latest() {
-        Json(c).into_response()
-    } else {
-        StatusCode::NOT_FOUND.into_response()
+    match state.commits.latest() {
+        Ok(Some(c)) => Json(c).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("failed to fetch latest commit: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
     }
 }
 
@@ -90,11 +95,9 @@ fn app(state: AppState) -> Router {
 }
 
 pub async fn start_server() {
-    let store = ChangeStore::default();
     let commits = CommitStore::default();
     let (tx, _) = broadcast::channel(100);
     let state = AppState {
-        store,
         commits,
         broadcaster: tx,
     };
@@ -117,12 +120,10 @@ mod tests {
 
     #[tokio::test]
     async fn accepts_post() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
-            commits,
+            commits: commits.clone(),
             broadcaster: tx,
         };
         let app = app(state);
@@ -145,17 +146,15 @@ mod tests {
             .unwrap();
         let v: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v, json!({"accepted": true}));
-        assert_eq!(store.changes.lock().unwrap().len(), 1);
+        assert_eq!(commits.all().unwrap().len(), 1);
     }
 
     #[tokio::test]
     async fn rejects_invalid_json() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
-            commits,
+            commits: commits.clone(),
             broadcaster: tx,
         };
         let app = app(state);
@@ -168,17 +167,15 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(store.changes.lock().unwrap().len(), 0);
+        assert_eq!(commits.all().unwrap().len(), 0);
     }
 
     #[tokio::test]
     async fn rejects_missing_field() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
-            commits,
+            commits: commits.clone(),
             broadcaster: tx,
         };
         let app = app(state);
@@ -192,16 +189,49 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(store.changes.lock().unwrap().len(), 0);
+        assert_eq!(commits.all().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn returns_500_on_commit_error() {
+        let commits = CommitStore::default();
+        // poison the mutex
+        {
+            let c = commits.clone();
+            std::thread::spawn(move || {
+                let _guard = c.commits.lock().unwrap();
+                panic!("boom");
+            })
+            .join()
+            .ok();
+        }
+        let (tx, _) = broadcast::channel(8);
+        let state = AppState {
+            commits: commits.clone(),
+            broadcaster: tx,
+        };
+        let app = app(state);
+
+        let change = Change {
+            hash: "x".into(),
+            path: "f".into(),
+            timestamp: 1,
+        };
+        let req = Request::builder()
+            .method("POST")
+            .uri("/changes")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&change).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]
     async fn creates_commit_on_change() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
             commits: commits.clone(),
             broadcaster: tx,
         };
@@ -227,12 +257,10 @@ mod tests {
 
     #[tokio::test]
     async fn stores_multiple_changes() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
-            commits,
+            commits: commits.clone(),
             broadcaster: tx,
         };
         let app = app(state);
@@ -252,17 +280,15 @@ mod tests {
             let resp = app.clone().oneshot(req).await.unwrap();
             assert_eq!(resp.status(), StatusCode::OK);
         }
-        assert_eq!(store.changes.lock().unwrap().len(), 2);
+        assert_eq!(commits.all().unwrap().len(), 2);
     }
 
     #[tokio::test]
     async fn streams_changes() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
-            commits,
+            commits: commits.clone(),
             broadcaster: tx.clone(),
         };
         let app = app(state);
@@ -310,11 +336,9 @@ mod tests {
 
     #[tokio::test]
     async fn commit_history_endpoint() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
             commits: commits.clone(),
             broadcaster: tx,
         };
@@ -349,11 +373,9 @@ mod tests {
 
     #[tokio::test]
     async fn latest_commit_endpoint() {
-        let store = ChangeStore::default();
         let commits = CommitStore::default();
         let (tx, _) = broadcast::channel(8);
         let state = AppState {
-            store: store.clone(),
             commits: commits.clone(),
             broadcaster: tx,
         };
