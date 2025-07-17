@@ -95,7 +95,8 @@ fn app(state: AppState) -> Router {
 }
 
 pub async fn start_server() {
-    let commits = CommitStore::default();
+    std::fs::create_dir_all(".hit").unwrap();
+    let commits = CommitStore::with_log(".hit/commits.log").unwrap();
     let (tx, _) = broadcast::channel(100);
     let state = AppState {
         commits,
