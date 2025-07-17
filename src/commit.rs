@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::commit_log::CommitLog;
 
 use crate::server::Change;
 
@@ -13,14 +16,31 @@ pub struct Commit {
     pub timestamp: u64,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CommitStore {
     pub commits: Arc<Mutex<Vec<Commit>>>,
+    log: Option<Arc<Mutex<CommitLog>>>,
+}
+
+impl Default for CommitStore {
+    fn default() -> Self {
+        Self { commits: Arc::new(Mutex::new(Vec::new())), log: None }
+    }
 }
 
 impl CommitStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a commit store backed by a commit log at the given path.
+    pub fn with_log(path: impl AsRef<Path>) -> Result<Self, Box<dyn Error>> {
+        let commits = CommitLog::load(&path)?;
+        let log = CommitLog::open(path)?;
+        Ok(Self {
+            commits: Arc::new(Mutex::new(commits)),
+            log: Some(Arc::new(Mutex::new(log))),
+        })
     }
 
     pub fn add_commit(&self, change: Change) -> Result<Commit, Box<dyn Error>> {
@@ -33,6 +53,13 @@ impl CommitStore {
             timestamp,
         };
         commits.push(commit.clone());
+        if let Some(log) = &self.log {
+            let mut log = log.lock().map_err(|_| "Lock poisoned")?;
+            if let Err(e) = log.append(&commit) {
+                tracing::error!("failed to append commit to log: {}", e);
+                return Err(Box::new(e));
+            }
+        }
         Ok(commit)
     }
 

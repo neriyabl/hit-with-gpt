@@ -6,3 +6,4 @@ pub mod server;
 pub mod streaming;
 pub mod sync;
 pub mod commit;
+pub mod commit_log;
