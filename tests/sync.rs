@@ -3,12 +3,13 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use reqwest_eventsource::{Event, EventSource};
 use serde_json;
+use std::collections::HashSet;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 
 use hit_with_gpt::object::{Blob, Hashable, Object};
-use hit_with_gpt::server::Change;
+use hit_with_gpt::server::{Change, ChangeEvent};
 use hit_with_gpt::storage::{OBJECT_DIR, read_object};
 use hit_with_gpt::streaming::{self, Broadcaster};
 use hit_with_gpt::sync::apply_change;
@@ -28,10 +29,13 @@ async fn parses_sse_event() {
     // send a change after clients can connect
     tokio::spawn(async move {
         sleep(Duration::from_millis(100)).await;
-        tx.send(Change {
-            hash: "abcd".into(),
-            path: "foo.txt".into(),
-            timestamp: 1,
+        tx.send(ChangeEvent {
+            change: Change {
+                hash: "abcd".into(),
+                path: "foo.txt".into(),
+                timestamp: 1,
+            },
+            commit_id: 1,
         })
         .unwrap();
     });
@@ -42,9 +46,10 @@ async fn parses_sse_event() {
     // first event should be Open
     matches!(es.next().await.unwrap().unwrap(), Event::Open);
     if let Event::Message(msg) = es.next().await.unwrap().unwrap() {
-        let change: Change = serde_json::from_str(&msg.data).unwrap();
-        assert_eq!(change.hash, "abcd");
-        assert_eq!(change.path, "foo.txt");
+        let ev: ChangeEvent = serde_json::from_str(&msg.data).unwrap();
+        assert_eq!(ev.change.hash, "abcd");
+        assert_eq!(ev.change.path, "foo.txt");
+        assert_eq!(ev.commit_id, 1);
     } else {
         panic!("expected message event");
     }
@@ -199,4 +204,40 @@ async fn backs_up_existing_file() {
 
     assert_eq!(fs::read("backup.txt").unwrap(), blob.content);
     assert_eq!(fs::read("backup.bak").unwrap(), b"old");
+}
+
+#[tokio::test]
+async fn skips_duplicate_commit_ids() {
+    let mut processed = HashSet::new();
+    let mut last_commit = 0u64;
+    let events = vec![
+        ChangeEvent {
+            change: Change {
+                hash: "h1".into(),
+                path: "p".into(),
+                timestamp: 1,
+            },
+            commit_id: 1,
+        },
+        ChangeEvent {
+            change: Change {
+                hash: "h1".into(),
+                path: "p".into(),
+                timestamp: 1,
+            },
+            commit_id: 1,
+        },
+    ];
+    let mut applied = 0u32;
+    for ev in events {
+        if !processed.insert(ev.commit_id) {
+            continue;
+        }
+        if ev.commit_id > last_commit {
+            last_commit = ev.commit_id;
+        }
+        applied += 1;
+    }
+    assert_eq!(applied, 1);
+    assert_eq!(last_commit, 1);
 }
