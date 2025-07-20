@@ -17,7 +17,6 @@ impl CommitLog {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .read(true)
             .open(&path)?;
         Ok(Self { path, file })
     }

@@ -95,8 +95,9 @@ fn app(state: AppState) -> Router {
 }
 
 pub async fn start_server() {
-    std::fs::create_dir_all(".hit").unwrap();
-    let commits = CommitStore::with_log(".hit/commits.log").unwrap();
+    std::fs::create_dir_all(".hit").expect("Failed to create .hit directory");
+    let commits =
+        CommitStore::with_log(".hit/commits.log").expect("Failed to initialize commit log");
     let (tx, _) = broadcast::channel(100);
     let state = AppState {
         commits,
