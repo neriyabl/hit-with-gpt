@@ -26,9 +26,23 @@ impl CommitLog {
         let data = bincode::serialize(commit).map_err(to_io_err)?;
         let compressed = zstd::stream::encode_all(&data[..], 0)?;
         let len = compressed.len() as u32;
-        self.file.write_all(&len.to_le_bytes())?;
-        self.file.write_all(&compressed)?;
-        self.file.sync_data()?;
+        self
+            .file
+            .write_all(&len.to_le_bytes())
+            .map_err(|e| {
+                tracing::error!("failed to write commit length: {}", e);
+                e
+            })?;
+        self.file
+            .write_all(&compressed)
+            .map_err(|e| {
+                tracing::error!("failed to write commit data: {}", e);
+                e
+            })?;
+        self.file.sync_data().map_err(|e| {
+            tracing::error!("failed to sync commit log: {}", e);
+            e
+        })?;
         Ok(())
     }
 
@@ -38,7 +52,10 @@ impl CommitLog {
         let mut file = match File::open(path) {
             Ok(f) => f,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e),
+            Err(e) => {
+                tracing::error!("failed to open commit log at {}: {}", path.display(), e);
+                return Err(e);
+            }
         };
         let mut commits = Vec::new();
         loop {
@@ -47,13 +64,27 @@ impl CommitLog {
                 if e.kind() == io::ErrorKind::UnexpectedEof {
                     break;
                 }
+                tracing::error!("failed to read commit length: {}", e);
                 return Err(e);
             }
             let len = u32::from_le_bytes(len_buf) as usize;
             let mut data = vec![0u8; len];
-            file.read_exact(&mut data)?;
-            let decompressed = zstd::stream::decode_all(&data[..])?;
-            let commit: Commit = bincode::deserialize(&decompressed).map_err(to_io_err)?;
+            if let Err(e) = file.read_exact(&mut data) {
+                tracing::error!("failed to read commit data: {}", e);
+                return Err(e);
+            }
+            let decompressed = match zstd::stream::decode_all(&data[..]) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::error!("failed to decompress commit: {}", e);
+                    return Err(e);
+                }
+            };
+            let commit: Commit = bincode::deserialize(&decompressed).map_err(|e| {
+                let err = to_io_err(e);
+                tracing::error!("failed to deserialize commit: {}", err);
+                err
+            })?;
             commits.push(commit);
         }
         Ok(commits)
