@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::commit_log::CommitLog;
 
 use crate::server::Change;
 
@@ -13,14 +16,40 @@ pub struct Commit {
     pub timestamp: u64,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CommitStore {
     pub commits: Arc<Mutex<Vec<Commit>>>,
+    log: Option<Arc<Mutex<CommitLog>>>,
+}
+
+impl Default for CommitStore {
+    fn default() -> Self {
+        Self {
+            commits: Arc::new(Mutex::new(Vec::new())),
+            log: None,
+        }
+    }
 }
 
 impl CommitStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a commit store backed by a commit log at the given path.
+    pub fn with_log(path: impl AsRef<Path>) -> Result<Self, Box<dyn Error>> {
+        let commits = CommitLog::load(&path).map_err(|e| {
+            tracing::error!("failed to load commit log: {}", e);
+            e
+        })?;
+        let log = CommitLog::open(path).map_err(|e| {
+            tracing::error!("failed to open commit log: {}", e);
+            e
+        })?;
+        Ok(Self {
+            commits: Arc::new(Mutex::new(commits)),
+            log: Some(Arc::new(Mutex::new(log))),
+        })
     }
 
     pub fn add_commit(&self, change: Change) -> Result<Commit, Box<dyn Error>> {
@@ -32,6 +61,13 @@ impl CommitStore {
             changes: vec![change],
             timestamp,
         };
+        if let Some(log) = &self.log {
+            let mut log = log.lock().map_err(|_| "Lock poisoned")?;
+            if let Err(e) = log.append(&commit) {
+                tracing::error!("failed to append commit to log: {}", e);
+                return Err(Box::new(e));
+            }
+        }
         commits.push(commit.clone());
         Ok(commit)
     }
@@ -75,5 +111,19 @@ mod tests {
         };
         let res = store.add_commit(change);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn no_memory_update_on_log_failure() {
+        let mut store = CommitStore::default();
+        store.log = Some(Arc::new(Mutex::new(CommitLog::open("/dev/full").unwrap())));
+        let change = Change {
+            hash: "h".into(),
+            path: "p".into(),
+            timestamp: 0,
+        };
+        let res = store.add_commit(change);
+        assert!(res.is_err());
+        assert_eq!(store.commits.lock().unwrap().len(), 0);
     }
 }
