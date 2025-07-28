@@ -97,10 +97,7 @@ fn app(state: AppState) -> Router {
 use std::error::Error;
 
 pub async fn start_server() -> Result<(), Box<dyn Error>> {
-    std::fs::create_dir_all(".hit").map_err(|e| {
-        tracing::error!("failed to create .hit directory: {}", e);
-        e
-    })?;
+    std::fs::create_dir_all(".hit")?;
     let commits = CommitStore::with_log(".hit/commits.log").map_err(|e| {
         tracing::error!("failed to initialize commit log: {}", e);
         e
