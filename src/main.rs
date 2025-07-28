@@ -37,7 +37,9 @@ async fn main() {
             }
         }
         Commands::Serve => {
-            hit_with_gpt::server::start_server().await;
+            if let Err(e) = hit_with_gpt::server::start_server().await {
+                tracing::error!(%e, "Server error");
+            }
         }
         Commands::Sync => {
             hit_with_gpt::sync::sync_from_server().await;

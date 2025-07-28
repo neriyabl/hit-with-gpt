@@ -94,10 +94,14 @@ fn app(state: AppState) -> Router {
     changes.merge(stream)
 }
 
-pub async fn start_server() {
-    std::fs::create_dir_all(".hit").expect("Failed to create .hit directory");
-    let commits =
-        CommitStore::with_log(".hit/commits.log").expect("Failed to initialize commit log");
+use std::error::Error;
+
+pub async fn start_server() -> Result<(), Box<dyn Error>> {
+    std::fs::create_dir_all(".hit")?;
+    let commits = CommitStore::with_log(".hit/commits.log").map_err(|e| {
+        tracing::error!("failed to initialize commit log: {}", e);
+        e
+    })?;
     let (tx, _) = broadcast::channel(100);
     let state = AppState {
         commits,
@@ -105,9 +109,16 @@ pub async fn start_server() {
     };
     let app = app(state);
     let addr = "0.0.0.0:8888";
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        tracing::error!("failed to bind to {}: {}", addr, e);
+        e
+    })?;
     tracing::info!("listening on http://{}", addr);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await.map_err(|e| {
+        tracing::error!("server error: {}", e);
+        e
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]

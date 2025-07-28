@@ -70,6 +70,10 @@ impl CommitLog {
             let len = u32::from_le_bytes(len_buf) as usize;
             let mut data = vec![0u8; len];
             if let Err(e) = file.read_exact(&mut data) {
+                if e.kind() == io::ErrorKind::UnexpectedEof {
+                    tracing::error!("unexpected EOF when reading commit data: {}", e);
+                    break;
+                }
                 tracing::error!("failed to read commit data: {}", e);
                 return Err(e);
             }
@@ -77,14 +81,17 @@ impl CommitLog {
                 Ok(d) => d,
                 Err(e) => {
                     tracing::error!("failed to decompress commit: {}", e);
-                    return Err(e);
+                    continue;
                 }
             };
-            let commit: Commit = bincode::deserialize(&decompressed).map_err(|e| {
-                let err = to_io_err(e);
-                tracing::error!("failed to deserialize commit: {}", err);
-                err
-            })?;
+            let commit: Commit = match bincode::deserialize(&decompressed) {
+                Ok(c) => c,
+                Err(e) => {
+                    let err = to_io_err(e);
+                    tracing::error!("failed to deserialize commit: {}", err);
+                    continue;
+                }
+            };
             commits.push(commit);
         }
         Ok(commits)

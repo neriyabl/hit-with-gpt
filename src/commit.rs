@@ -42,6 +42,7 @@ impl CommitStore {
             tracing::error!("failed to load commit log: {}", e);
             e
         })?;
+        tracing::info!(path = %path.as_ref().display(), count = commits.len(), "loaded commits from log");
         let log = CommitLog::open(path).map_err(|e| {
             tracing::error!("failed to open commit log: {}", e);
             e
@@ -125,5 +126,23 @@ mod tests {
         let res = store.add_commit(change);
         assert!(res.is_err());
         assert_eq!(store.commits.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn loads_commits_from_existing_log() {
+        fn path() -> &'static str { "store_test.log" }
+        let _ = std::fs::remove_file(path());
+        {
+            let mut log = CommitLog::open(path()).unwrap();
+            let commit = Commit {
+                id: 1,
+                changes: vec![Change { hash: "h".into(), path: "p".into(), timestamp: 1 }],
+                timestamp: 1,
+            };
+            log.append(&commit).unwrap();
+        }
+        let store = CommitStore::with_log(path()).unwrap();
+        assert_eq!(store.all().unwrap().len(), 1);
+        std::fs::remove_file(path()).ok();
     }
 }
