@@ -6,6 +6,7 @@ use hit_with_gpt::watcher::{handle_event, send_change_to_server, send_object_to_
 
 use notify::Event;
 use notify::event::{CreateKind, EventKind};
+use serial_test::serial;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,7 @@ use tokio::sync::broadcast;
 use tokio::time::sleep;
 
 #[tokio::test]
+#[serial]
 async fn test_send_object_to_server_success() {
     // Start a test server
     let commits = CommitStore::default();
@@ -97,6 +99,7 @@ async fn test_send_object_to_server_success() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_send_change_to_server_success() {
     // Start a test server
     let commits = CommitStore::default();
@@ -157,6 +160,7 @@ async fn test_send_change_to_server_success() {
 }
 
 #[test]
+#[serial]
 fn test_handle_event_creates_and_stores_object() {
     // Create a temporary directory for testing
     let temp_dir = tempfile::tempdir().unwrap();
@@ -214,6 +218,7 @@ fn test_handle_event_creates_and_stores_object() {
 }
 
 #[test]
+#[serial]
 fn test_handle_event_ignores_hit_directory() {
     // Create a temporary directory for testing
     let temp_dir = tempfile::tempdir().unwrap();
@@ -256,6 +261,7 @@ fn test_handle_event_ignores_hit_directory() {
 }
 
 #[test]
+#[serial]
 fn test_handle_event_ignores_temporary_files() {
     // Create a temporary directory for testing
     let temp_dir = tempfile::tempdir().unwrap();
@@ -312,6 +318,7 @@ fn test_handle_event_ignores_temporary_files() {
 }
 
 #[test]
+#[serial]
 fn test_handle_event_skips_existing_objects() {
     // Create a temporary directory for testing
     let temp_dir = tempfile::tempdir().unwrap();
@@ -366,6 +373,7 @@ fn test_handle_event_skips_existing_objects() {
 }
 
 #[test]
+#[serial]
 fn test_handle_event_ignores_directories() {
     // Create a temporary directory for testing
     let temp_dir = tempfile::tempdir().unwrap();

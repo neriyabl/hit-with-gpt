@@ -15,6 +15,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::time::sleep;
 use tower::ServiceExt;
+use serial_test::serial;
 
 // Helper function to create a test app
 fn create_test_app() -> Router {
@@ -210,6 +211,7 @@ async fn test_roundtrip_object_storage() {
 
 // Integration test for the watcher's send_object_to_server function
 #[tokio::test]
+#[serial]
 async fn test_send_object_to_server_integration() {
     // Start a test server
     let commits = CommitStore::default();
@@ -274,21 +276,22 @@ async fn test_send_object_to_server_integration() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_send_object_to_server_failure() {
-    // Set an invalid server URL that will definitely fail
-    unsafe { env::set_var("HIT_SERVER_URL", "http://invalid-domain-that-does-not-exist-12345.com"); }
+    // Set a server URL that will return an error (using a port that's likely not in use)
+    unsafe { env::set_var("HIT_SERVER_URL", "http://127.0.0.1:9999"); }
     
     let blob = Blob {
         content: b"Test content".to_vec(),
     };
     let obj = Object::Blob(blob);
     
-    // This should fail because the server domain doesn't exist
+    // This should fail because nothing is listening on port 9999
     let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
         send_object_to_server(&obj).map_err(|e| e.to_string())
     }).await.unwrap();
     
-    assert!(result.is_err(), "Expected send_object_to_server to fail with invalid domain, but it succeeded");
+    assert!(result.is_err(), "Expected send_object_to_server to fail with connection refused, but it succeeded");
     
     // Clean up
     unsafe { env::remove_var("HIT_SERVER_URL"); }
