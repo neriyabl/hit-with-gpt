@@ -1,11 +1,15 @@
 use crate::commit::{Commit, CommitStore};
+use crate::object::{Object, Hashable};
+use crate::storage::{write_object, read_object};
 use axum::{
     Json, Router,
-    extract::{State, rejection::JsonRejection},
+    extract::{State, Path, rejection::JsonRejection},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
     routing::post,
+    routing::put,
+    body::Bytes,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -82,11 +86,64 @@ async fn latest_commit_handler(State(state): State<AppState>) -> impl IntoRespon
     }
 }
 
-fn app(state: AppState) -> Router {
+async fn store_object_handler(
+    Path(hash): Path<String>,
+    body: Bytes,
+) -> Result<impl IntoResponse, StatusCode> {
+    // Deserialize the object from the request body
+    let obj: Object = match bincode::deserialize(&body) {
+        Ok(obj) => obj,
+        Err(e) => {
+            tracing::warn!("failed to deserialize object: {}", e);
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+    
+    // Verify the hash matches
+    if obj.hash() != hash {
+        tracing::warn!("hash mismatch: expected {}, got {}", hash, obj.hash());
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    
+    // Store the object
+    if let Err(e) = write_object(&obj) {
+        tracing::error!("failed to store object {}: {}", hash, e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    
+    tracing::info!("stored object {}", hash);
+    Ok(Json(json!({"stored": true})))
+}
+
+async fn get_object_handler(Path(hash): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+    match read_object(&hash) {
+        Ok(obj) => {
+            // Serialize the object for response
+            match bincode::serialize(&obj) {
+                Ok(bytes) => Ok((
+                    [("Content-Type", "application/octet-stream")],
+                    bytes,
+                ).into_response()),
+                Err(e) => {
+                    tracing::error!("failed to serialize object {}: {}", hash, e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("object {} not found: {}", hash, e);
+            Err(StatusCode::NOT_FOUND)
+        }
+    }
+}
+
+pub fn app(state: AppState) -> Router {
     let changes = Router::new()
         .route("/changes", post(change_handler))
         .route("/commits", get(commits_handler))
         .route("/commits/latest", get(latest_commit_handler))
+        .route("/objects/:hash", put(store_object_handler))
+        .route("/objects/:hash", get(get_object_handler))
         .with_state(state.clone());
     let stream = crate::streaming::router(crate::streaming::Broadcaster::new(
         state.broadcaster.clone(),
@@ -98,6 +155,7 @@ use std::error::Error;
 
 pub async fn start_server() -> Result<(), Box<dyn Error>> {
     std::fs::create_dir_all(".hit")?;
+    std::fs::create_dir_all(".hit/objects")?;
     let commits = CommitStore::with_log(".hit/commits.log").map_err(|e| {
         tracing::error!("failed to initialize commit log: {}", e);
         e

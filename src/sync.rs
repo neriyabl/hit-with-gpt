@@ -15,13 +15,28 @@ use std::path::{Component, Path, PathBuf};
 
 fn resolve_repo_path(rel: &str) -> std::io::Result<PathBuf> {
     let p = Path::new(rel);
-    if p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+    let root = std::env::current_dir()?;
+    
+    // If it's an absolute path, extract just the filename
+    if p.is_absolute() {
+        if let Some(filename) = p.file_name() {
+            return Ok(root.join(filename));
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid file path",
+            ));
+        }
+    }
+    
+    // Check for parent directory traversal
+    if p.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "path outside repository",
         ));
     }
-    let root = std::env::current_dir()?;
+    
     Ok(root.join(p))
 }
 
@@ -36,8 +51,10 @@ pub async fn apply_change(
     let target_path = resolve_repo_path(&change.path)?;
 
     let url = format!("{}/objects/{}", base.trim_end_matches('/'), change.hash);
+    info!(hash = %change.hash, path = %change.path, url = %url, "fetching object from server");
     let resp = client.get(&url).send().await?;
     if !resp.status().is_success() {
+        error!(hash = %change.hash, url = %url, status = %resp.status(), "server object not found");
         return Err(format!("server responded with status {}", resp.status()).into());
     }
     let bytes = resp.bytes().await?;

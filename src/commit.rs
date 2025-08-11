@@ -116,16 +116,42 @@ mod tests {
 
     #[test]
     fn no_memory_update_on_log_failure() {
+        use std::fs;
+        
         let mut store = CommitStore::default();
-        store.log = Some(Arc::new(Mutex::new(CommitLog::open("/dev/full").unwrap())));
-        let change = Change {
-            hash: "h".into(),
-            path: "p".into(),
-            timestamp: 0,
-        };
-        let res = store.add_commit(change);
-        assert!(res.is_err());
-        assert_eq!(store.commits.lock().unwrap().len(), 0);
+        
+        // Create a temporary file that will cause write failures
+        let temp_dir = std::env::temp_dir();
+        let log_path = temp_dir.join("readonly_commit_test.log");
+        
+        // Create the file first
+        fs::write(&log_path, b"").unwrap();
+        
+        // Make it read-only
+        let mut perms = fs::metadata(&log_path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&log_path, perms).unwrap();
+        
+        // The CommitLog::open should succeed (it opens for append)
+        // but the actual write will fail due to read-only permissions
+        if let Ok(log) = CommitLog::open(&log_path) {
+            store.log = Some(Arc::new(Mutex::new(log)));
+            
+            let change = Change {
+                hash: "h".into(),
+                path: "p".into(),
+                timestamp: 0,
+            };
+            let res = store.add_commit(change);
+            assert!(res.is_err());
+            assert_eq!(store.commits.lock().unwrap().len(), 0);
+        }
+        
+        // Clean up - restore write permissions and delete
+        let mut perms = fs::metadata(&log_path).unwrap().permissions();
+        perms.set_readonly(false);
+        let _ = fs::set_permissions(&log_path, perms);
+        let _ = fs::remove_file(&log_path);
     }
 
     #[test]

@@ -16,8 +16,7 @@ enum Commands {
     Sync,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(true)
@@ -37,12 +36,20 @@ async fn main() {
             }
         }
         Commands::Serve => {
-            if let Err(e) = hit_with_gpt::server::start_server().await {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build runtime");
+            if let Err(e) = rt.block_on(hit_with_gpt::server::start_server()) {
                 tracing::error!(%e, "Server error");
             }
         }
         Commands::Sync => {
-            hit_with_gpt::sync::sync_from_server().await;
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build runtime");
+            rt.block_on(hit_with_gpt::sync::sync_from_server());
         }
     }
 }

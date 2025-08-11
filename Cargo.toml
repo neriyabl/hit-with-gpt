@@ -26,6 +26,7 @@ hyper = "1"
 serial_test = "2"
 httpmock = "0.6"
 http-body-util = "0.1"
+tempfile = "3"
 
 [[bin]]
 name = "hit"

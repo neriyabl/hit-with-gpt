@@ -34,6 +34,30 @@ pub fn send_change_to_server(hash: &str, path: &Path) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
+/// Send object data to the server for storage.
+pub fn send_object_to_server(obj: &Object) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let base = env::var("HIT_SERVER_URL").unwrap_or_else(|_| "http://localhost:8888".into());
+    let hash = obj.hash();
+    let url = format!("{}/objects/{}", base.trim_end_matches('/'), hash);
+    
+    // Serialize the object using bincode (same format as local storage)
+    let serialized = bincode::serialize(obj)
+        .map_err(|e| format!("failed to serialize object: {}", e))?;
+    
+    let resp = client.put(&url)
+        .header("Content-Type", "application/octet-stream")
+        .body(serialized)
+        .send()?;
+        
+    if !resp.status().is_success() {
+        return Err(format!("server responded with status {}", resp.status()).into());
+    }
+    
+    info!(hash, status = %resp.status(), "Sent object to server");
+    Ok(())
+}
+
 pub fn watch_and_store_changes() -> NotifyResult<()> {
     let (tx, rx) = channel();
 
@@ -79,6 +103,13 @@ pub fn handle_event(event: Event) -> std::io::Result<()> {
             } else {
                 write_object(&obj)?;
                 info!(path = %path.display(), hash, "Detected change stored");
+                
+                // Send object data to server first
+                if let Err(e) = send_object_to_server(&obj) {
+                    warn!(%e, "failed to send object to server");
+                }
+                
+                // Then send change notification
                 if let Err(e) = send_change_to_server(&hash, &path) {
                     warn!(%e, "failed to send change to server");
                 }
