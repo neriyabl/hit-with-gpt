@@ -48,6 +48,7 @@ async fn change_handler(
         }
     };
     tracing::info!("change received: {:?}", change);
+    
     let commit = match state.commits.add_commit(change.clone()) {
         Ok(c) => c,
         Err(e) => {
@@ -55,13 +56,24 @@ async fn change_handler(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
-    tracing::info!(id = commit.id, "commit created");
-    if let Err(e) = state.broadcaster.send(ChangeEvent {
-        change: change.clone(),
-        commit_id: commit.id,
-    }) {
-        tracing::warn!("failed to broadcast change: {}", e);
+    
+    // Check if this is actually a new commit (not a duplicate)
+    let is_new_commit = state.commits.all()
+        .map(|commits| commits.len() as u64 == commit.id)
+        .unwrap_or(true);
+    
+    if is_new_commit {
+        tracing::info!(id = commit.id, "new commit created");
+        if let Err(e) = state.broadcaster.send(ChangeEvent {
+            change: change.clone(),
+            commit_id: commit.id,
+        }) {
+            tracing::warn!("failed to broadcast change: {}", e);
+        }
+    } else {
+        tracing::info!(id = commit.id, "duplicate change ignored");
     }
+    
     Ok(Json(json!({"accepted": true})))
 }
 
