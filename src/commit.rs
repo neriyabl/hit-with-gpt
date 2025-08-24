@@ -55,6 +55,15 @@ impl CommitStore {
 
     pub fn add_commit(&self, change: Change) -> Result<Commit, Box<dyn Error>> {
         let mut commits = self.commits.lock().map_err(|_| "Lock poisoned")?;
+        
+        // Check if the latest commit already contains this exact change (same hash and path)
+        if let Some(latest) = commits.last() {
+            if latest.changes.iter().any(|c| c.hash == change.hash && c.path == change.path) {
+                tracing::info!(hash = %change.hash, path = %change.path, "skipping duplicate change");
+                return Ok(latest.clone());
+            }
+        }
+        
         let id = commits.last().map(|c| c.id + 1).unwrap_or(1);
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let commit = Commit {

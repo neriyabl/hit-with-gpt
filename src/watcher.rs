@@ -73,8 +73,11 @@ pub fn watch_and_store_changes() -> NotifyResult<()> {
     for res in rx {
         match res {
             Ok(event) => {
-                if let Err(e) = handle_event(event) {
-                    error!(%e, "error handling event");
+                // Only process Write events to avoid duplicates
+                if matches!(event.kind, notify::EventKind::Modify(notify::event::ModifyKind::Data(_))) {
+                    if let Err(e) = handle_event(event) {
+                        error!(%e, "error handling event");
+                    }
                 }
             }
             Err(e) => error!(?e, "watch error"),
@@ -98,21 +101,23 @@ pub fn handle_event(event: Event) -> std::io::Result<()> {
             let obj = Object::Blob(blob);
             let hash = obj.hash();
             let object_path = Path::new(OBJECT_DIR).join(&hash);
-            if object_path.exists() {
-                info!(path = %path.display(), hash, "Detected change (already stored)");
-            } else {
+            let already_stored = object_path.exists();
+            
+            if !already_stored {
                 write_object(&obj)?;
                 info!(path = %path.display(), hash, "Detected change stored");
                 
-                // Send object data to server first
+                // Send object data to server first (only if not already stored)
                 if let Err(e) = send_object_to_server(&obj) {
                     warn!(%e, "failed to send object to server");
                 }
-                
-                // Then send change notification
-                if let Err(e) = send_change_to_server(&hash, &path) {
-                    warn!(%e, "failed to send change to server");
-                }
+            } else {
+                info!(path = %path.display(), hash, "Detected change (already stored locally)");
+            }
+            
+            // Always send change notification to server, regardless of local storage
+            if let Err(e) = send_change_to_server(&hash, &path) {
+                warn!(%e, "failed to send change to server");
             }
         }
     }
