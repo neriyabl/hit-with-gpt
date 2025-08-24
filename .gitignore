@@ -1,1 +1,5 @@
 /target
+ba-target/
+.hit/
+*.bak
+*.txt
